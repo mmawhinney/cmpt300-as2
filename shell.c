@@ -6,10 +6,14 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <assert.h>
 
 #define COMMAND_LENGTH 1024
 #define NUM_TOKENS (COMMAND_LENGTH / 2 + 1)
 #define MAX_DIRECTORY_LENGTH 1024
+
+#define HISTORY_DEPTH 100
+char history[HISTORY_DEPTH][COMMAND_LENGTH];
 
 void freeTokens(char* tokens[]);
 int tokenize_command(char* buff, char* tokens[]);
@@ -21,6 +25,7 @@ _Bool isBuiltIn(char* command);
 int tokenCount(char* tokens[]);
 void freeTokens(char* tokens[]);
 void printString(char* string);
+void printHistoryCommand(int commandNum);
 
 // TODO: try and rewrite to not use strtok so we can have spaces in paths
 int tokenize_command(char* buff, char* tokens[]) {
@@ -149,6 +154,58 @@ void printPrompt() {
     printString(directory);
 }
 
+void addToHistory(char* command, int commandNum) {
+    strcpy(history[commandNum], command);
+    commandNum++;
+}
+
+void retrieveFromHistory(int commandNum, char* buffer) {
+    for(int i = 0; i < COMMAND_LENGTH; i++) {
+        buffer[i] = history[commandNum][i];
+    }
+}
+
+void printLastTenCommands(int commandCount) {
+    int commandsToPrint = (commandCount < 10) ? commandCount : 10;
+    int startingCommand;
+    if(commandsToPrint < 10) {
+        startingCommand = 1;
+    } else {
+        startingCommand = commandCount - 10;
+    }
+    for(int i = startingCommand; i < commandCount; i++) {
+        printHistoryCommand(i);
+    }
+}
+
+void printHistoryCommand(int commandNum) {
+    char commandNumber[10];
+    sprintf(commandNumber, "%i", commandNum);
+    strcat(commandNumber, "\t");
+    char* command = history[commandNum];
+    strcat(commandNumber, command);
+    printString(commandNumber);
+    printString("\n");
+}
+
+void testRetrieve() {
+    char* buffer = malloc(sizeof(char) * 50);
+    strcpy(history[0], "ls -a -s");
+    retrieveFromHistory(0, buffer);
+    printString(buffer);
+    exit(0);
+}
+
+void testAdd(int count) {
+    char* command = "ls -a -s";
+    addToHistory(command, count);
+    char* buffer = malloc(50);
+    retrieveFromHistory(count, buffer);
+    assert(strcmp(buffer, command) == 0);
+    printHistoryCommand(count);
+    exit(0);
+}
+
 /**
 * Main and Execute Commands 
 */
@@ -156,6 +213,10 @@ void printPrompt() {
 int main(int argc, char* argv[]) {
     char input_buffer[COMMAND_LENGTH];
     char *tokens[NUM_TOKENS];
+    int historyCommandCount = 1;
+    
+    // testRetrieve();
+    // testAdd(historyCommandCount);
     // printf("Address: %p\n", tokens);
     // char** tokens = malloc(sizeof(char) * NUM_TOKENS);
     while (true) {
@@ -165,6 +226,7 @@ int main(int argc, char* argv[]) {
         printPrompt();
         _Bool in_background = false;
         read_command(input_buffer, tokens, &in_background);
+        
         /**
         * Steps For Basic Shell:
         * 1. Fork a child process
@@ -177,8 +239,13 @@ int main(int argc, char* argv[]) {
         // printf("Token count: %i\n", token_count);
         if(tokens[0] == NULL) continue; //keeps from segfault-ing on empty line
         
+        addToHistory(input_buffer, historyCommandCount);
+        historyCommandCount++;
+        
         if(isBuiltIn(tokens[0])) {
             executeBuiltIn(tokens);
+        } else if(strcmp(tokens[0], "history") == 0) {
+            printLastTenCommands(historyCommandCount);
         } else {
             pid_t pid = fork();
             if(pid == 0) {
