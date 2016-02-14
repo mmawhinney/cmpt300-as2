@@ -24,7 +24,7 @@ void executeBuiltIn(char* tokens[]);
 _Bool isBuiltIn(char* command);
 int tokenCount(char* tokens[]);
 void freeTokens(char* tokens[]);
-void printString(char* string);
+void printString(char* string, _Bool newline);
 void printHistoryCommand(int commandNum);
 
 // TODO: try and rewrite to not use strtok so we can have spaces in paths
@@ -92,8 +92,7 @@ void pwd(char* tokens[]) {
     char directory[MAX_DIRECTORY_LENGTH];
     size_t size = MAX_DIRECTORY_LENGTH;
     getcwd(directory, size);
-    printString(directory);
-    printString("\n");
+    printString(directory, true);
 }
 
 void cd(char* tokens[]) {
@@ -142,8 +141,11 @@ void freeTokens(char* tokens[]) {
     }
 }
 
-void printString(char* string) {
+void printString(char* string, _Bool newline) {
     write(STDOUT_FILENO, string, strlen(string));
+    if(newline) {
+        write(STDOUT_FILENO, "\n", 1);
+    }
 }
 
 void printPrompt() {
@@ -151,7 +153,7 @@ void printPrompt() {
     size_t size = MAX_DIRECTORY_LENGTH;
     getcwd(directory, size);
     strcat(directory, "> ");
-    printString(directory);
+    printString(directory, false);
 }
 
 void addToHistory(char* command, int commandNum) {
@@ -184,15 +186,14 @@ void printHistoryCommand(int commandNum) {
     strcat(commandNumber, "\t");
     char* command = history[commandNum];
     strcat(commandNumber, command);
-    printString(commandNumber);
-    printString("\n");
+    printString(commandNumber, true);
 }
 
 void testRetrieve() {
     char* buffer = malloc(sizeof(char) * 50);
     strcpy(history[0], "ls -a -s");
     retrieveFromHistory(0, buffer);
-    printString(buffer);
+    printString(buffer, true);
     exit(0);
 }
 
@@ -237,20 +238,46 @@ int main(int argc, char* argv[]) {
         */
         // int token_count = tokenCount(tokens);
         // printf("Token count: %i\n", token_count);
-        if(tokens[0] == NULL) continue; //keeps from segfault-ing on empty line
+        char* command = tokens[0];
+        if(command == NULL) continue; //keeps from segfault-ing on empty line
+        
+        if(strncmp(command, "!", 1) == 0) {
+            // removes the ! from the front of the command
+            memmove(command, command+1, strlen(command));
+            int count;
+            if(strcmp(command, "!") == 0) {
+                count = historyCommandCount - 1;
+            } else {
+                count = atoi(command);
+            }
+            retrieveFromHistory(count, input_buffer);
+
+            freeTokens(tokens);
+        	// Tokenize (saving original command string)
+        	int token_count = tokenize_command(input_buffer, tokens);
+
+        	// Extract if running in background:
+        	if (token_count > 0 && strcmp(tokens[token_count - 1], "&") == 0) {
+        		in_background = true;
+                free(tokens[token_count - 1]); 
+                tokens[token_count - 1] = 0;
+        	}
+            command = tokens[0];
+            printString(input_buffer, true);
+        }
         
         addToHistory(input_buffer, historyCommandCount);
         historyCommandCount++;
         
-        if(isBuiltIn(tokens[0])) {
+        if(isBuiltIn(command)) {
             executeBuiltIn(tokens);
-        } else if(strcmp(tokens[0], "history") == 0) {
+        } else if(strcmp(command, "history") == 0) {
             printLastTenCommands(historyCommandCount);
         } else {
             pid_t pid = fork();
             if(pid == 0) {
-                if(execvp(tokens[0], tokens) == -1) {
-                    perror(tokens[0]);
+                if(execvp(command, tokens) == -1) {
+                    perror(command);
                 }
             }
             if(in_background == false) {
