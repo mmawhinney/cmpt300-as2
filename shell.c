@@ -17,6 +17,7 @@
 #define MAX_DIRECTORY_LENGTH 1024
 
 #define HISTORY_DEPTH 100
+#define MAX_COMMANDS_TO_PRINT 10
 char history[HISTORY_DEPTH][COMMAND_LENGTH];
 int historyCommandCount = 1;
 
@@ -30,8 +31,14 @@ _Bool isBuiltIn(char* command);
 int tokenCount(char* tokens[]);
 void freeTokens(char* tokens[]);
 void printString(char* string, _Bool newline);
+void printPrompt();
 void printHistoryCommand(int commandNum);
 void printLastTenCommands(int commandCount);
+void addToHistory(char* command, int commandNum);
+int retreiveFromHistory(int commandNum, char* buffer);
+void handle_SIGINT();
+void registerSignalHandler();
+int runPreviousCommand(char* command, char* input_buffer, char* tokens[], _Bool *in_background);
 
 /**
 * Read a command from the keyboard into the buffer 'buff' and tokenize it
@@ -168,12 +175,13 @@ void printPrompt() {
 }
 
 void printLastTenCommands(int commandCount) {
-    int commandsToPrint = (commandCount-1 < 10) ? commandCount-1 : 10;
+    int commandsToPrint = (commandCount-1 < MAX_COMMANDS_TO_PRINT) ? 
+                            commandCount-1 : MAX_COMMANDS_TO_PRINT;
     int startingCommand;
-    if(commandsToPrint < 10) {
+    if(commandsToPrint < MAX_COMMANDS_TO_PRINT) {
         startingCommand = 1;
     } else {
-        startingCommand = commandCount - 10;
+        startingCommand = commandCount - MAX_COMMANDS_TO_PRINT;
     }
     for(int i = startingCommand; i < commandCount; i++) {
         printHistoryCommand(i);
@@ -183,9 +191,9 @@ void printLastTenCommands(int commandCount) {
 void printHistoryCommand(int commandNum) {
     char commandNumber[COMMAND_LENGTH];
     sprintf(commandNumber, "%i", commandNum);
-    strcat(commandNumber, "\t");
+    strcat(commandNumber, "\t"); // num = num + \t
     char* command = history[commandNum];
-    strcat(commandNumber, command);
+    strcat(commandNumber, command); // num = num + \t + command
     printString(commandNumber, true);
 }
 
@@ -220,17 +228,49 @@ void registerSignalHandler() {
     sigemptyset(&handler.sa_mask);
     sigaction(SIGINT, &handler, NULL);
 }
+
+int runPreviousCommand(char* command, char* input_buffer, char* tokens[], _Bool *in_background) {
+    // removes the ! from the front of the command
+    memmove(command, command+1, strlen(command));
+    int count;
+    if(strcmp(command, "!") == 0) {
+        count = historyCommandCount - 1;
+    } else {
+        count = atoi(command);
+    }
+    if(retrieveFromHistory(count, input_buffer) < 0) {
+        printString("Invalid history command.", true);
+        freeTokens(tokens); // free memory allocated for the invalid command
+        return -1;
+    }
+
+    /**
+     * free tokens so that no tokens are left in the array from the 
+     * last command entered
+    */
+    freeTokens(tokens);
+	// Tokenize (saving original command string)
+	int token_count = tokenize_command(input_buffer, tokens);
+
+	// Extract if running in background:
+	if (token_count > 0 && strcmp(tokens[token_count - 1], "&") == 0) {
+		*in_background = true;
+        free(tokens[token_count - 1]); 
+        tokens[token_count - 1] = 0;
+	}
+    command = tokens[0];
+    printString(input_buffer, true);
+    return 0;
+}
+
 /**
 * Main and Execute Commands 
 */
 int main(int argc, char* argv[]) {
     char input_buffer[COMMAND_LENGTH];
     char *tokens[NUM_TOKENS];
-    
     registerSignalHandler();
-        
-    // printf("Address: %p\n", tokens);
-    // char** tokens = malloc(sizeof(char) * NUM_TOKENS);
+    
     while (true) {
         // Get command
         // Use write because we need to use read()/write() to work with 
@@ -247,39 +287,15 @@ int main(int argc, char* argv[]) {
         *   child to finish. Otherwise, parent loops back to 
         *   read_command() again immediately. 
         */
-        // int token_count = tokenCount(tokens);
-        // printf("Token count: %i\n", token_count);
         char* command = tokens[0];
-        // printString("Command is: ", false);
-//         printString(command, true);
         if(command == NULL) continue; //keeps from segfault-ing on empty line
         
         if(strncmp(command, "!", 1) == 0) {
-            // removes the ! from the front of the command
-            memmove(command, command+1, strlen(command));
-            int count;
-            if(strcmp(command, "!") == 0) {
-                count = historyCommandCount - 1;
-            } else {
-                count = atoi(command);
-            }
-            if(retrieveFromHistory(count, input_buffer) < 0) {
-                printString("Invalid history command.", true);
+            // try to load previous command back into tokens, back to read if it fails
+            if(runPreviousCommand(command, input_buffer, tokens, &in_background) < 0) {
                 continue;
             }
-
-            freeTokens(tokens);
-        	// Tokenize (saving original command string)
-        	int token_count = tokenize_command(input_buffer, tokens);
-
-        	// Extract if running in background:
-        	if (token_count > 0 && strcmp(tokens[token_count - 1], "&") == 0) {
-        		in_background = true;
-                free(tokens[token_count - 1]); 
-                tokens[token_count - 1] = 0;
-        	}
             command = tokens[0];
-            printString(input_buffer, true);
         }
         
         addToHistory(input_buffer, historyCommandCount);
@@ -293,18 +309,14 @@ int main(int argc, char* argv[]) {
                 execvp(command, tokens);
                 if(errno) {
                     perror(command);
-                    exit(0);
+                    exit(-1);
                 }
-                // if(execvp(command, tokens) == -1) {
-//                     perror(command);
-//                 }
             } else {
                 if(in_background == false) {
                     int status;
                     waitpid(pid, &status, 0);
                 }
             }
-            
         }
         // wait on zombie background processes
         while(waitpid(-1, NULL, WNOHANG) > 0) {}
