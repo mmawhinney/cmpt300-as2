@@ -4,7 +4,7 @@
 # Define what compiler to use and the flags.
 CC=cc
 CXX=CC
-CCFLAGS= -g -std=c99 -Wall -Werror
+CCFLAGS= -g -std=c99 -Wall -Werror -D_XOPEN_SOURCE
 
 # A rule in Makefile has the form:
 #

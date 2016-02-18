@@ -1,5 +1,3 @@
-#define _XOPEN_SOURCE
-
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -55,14 +53,13 @@ void read_command(char *buff, char *tokens[], _Bool *in_background) {
     *in_background = false;
 
 	// Read input
-	int length = read(STDIN_FILENO, buff, COMMAND_LENGTH-1);
-    if ((length < 0) && (errno != EINTR))
-	{
-		perror("Unable to read command. Terminating.\n");
-		exit(-1); /* terminate with error */
-	} else if(length < 0 && errno == EINTR) {
-	    buff[0] = '\0';
-	}
+    int length = read(STDIN_FILENO, buff, COMMAND_LENGTH-1);
+    if ((length < 0) && (errno != EINTR)) {
+        perror("Unable to read command. Terminating.\n");
+        exit(-1); /* terminate with error */
+    } else if(length < 0 && errno == EINTR) {
+        buff[0] = '\0';
+    }
     
 	// Null terminate and strip \n.
 	buff[length] = '\0';
@@ -85,7 +82,6 @@ void read_command(char *buff, char *tokens[], _Bool *in_background) {
 	}
 }
 
-// TODO: try and rewrite to not use strtok so we can have spaces in paths
 int tokenize_command(char* buff, char* tokens[]) {
     int count = 0;
     char bufferCopy[COMMAND_LENGTH];
